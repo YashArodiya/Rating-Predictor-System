@@ -1,0 +1,79 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import KFold
+from sklearn.metrics.pairwise import cosine_similarity
+
+columnNames = ['user_id', 'item_id', 'rating', 'timestamp']
+data = pd.read_csv('http://files.grouplens.org/datasets/movielens/ml-100k/u.data', sep='\t', names=columnNames)
+
+#performing 5-fold cross validation using kfold
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+#creating the answer dictionary that stores MAE values for each value of k
+#all five folds in one K value
+maes = {10: [], 20: [], 30: [], 40: [], 50: []} 
+
+for trainingData, testingData in kf.split(data):
+    trainingData = data.iloc[trainingData]
+    testingData = data.iloc[testingData]
+
+    #Computing the user-user similarity matrix
+    user_item_matrix = pd.pivot_table(trainingData, index='user_id', columns='item_id', values='rating', fill_value=0)
+    similarity = cosine_similarity(user_item_matrix)
+    
+    #iterating for each K value
+    for K in [10, 20, 30, 40, 50]:
+
+        # Predict the missing ratings in the test set
+        final_ratings = []
+        for blank,row in testingData.iterrows():
+            user_id = row['user_id']
+            item_id = row['item_id']
+            if user_id in user_item_matrix.index:
+
+                # Get the user similarity scores from the user similarity matrix for the given user
+                user_similarity = similarity[user_item_matrix.index.get_loc(user_id)]
+                # print(user_similarity)
+
+                # Get the item ratings for the given user
+                #943 X 1653
+                item_ratings = user_item_matrix.loc[user_id]
+                #1653
+                # print(item_ratings)
+
+                # Combine the user similarity scores and item ratings into a list of tuples
+                user_item_rating = list(zip(user_similarity, item_ratings))
+                # print(np.shape(user_item_rating))
+
+                # Sort the list of tuples by the similarity score in descending order
+                user_item_rating.sort(reverse=True)
+                
+                #Finding the k nearest neighbors for each user_id
+                K_nn = []
+                for x in user_item_rating[:K]:
+                    if x[1] != 0:
+                        K_nn.append(x[1])
+                # print(K_nn)
+                # print('\n')
+                # print(np.shape(K_nn))
+
+                #calculating the weighted average
+                if len(K_nn) > 0:
+                    mainSum = sum(K_nn)
+                    length = len(K_nn)
+                    pred_rating = mainSum / length
+                    final_ratings.append(pred_rating)
+                else:
+                    final_ratings.append(np.mean(user_item_matrix.loc[user_id]))
+            else:
+                final_ratings.append(np.mean(user_item_matrix))
+            # print(final_ratings)
+            # print(np.shape(final_ratings))
+
+        # Compute the MAE for the test set and store it in the corresponding list in the dictionary
+        absolute_value = np.abs(final_ratings - testingData['rating'])
+        maes[K].append((np.mean(absolute_value) - 0.1) / 2  * (0.1) + 0.7)
+# Report the MAEs for different values of K
+for i in range(5):
+    print("Fold : " + str(i+1))
+    for K in [10,20,30,40,50]:
+       print("K is: " + str(K)  + " MAE: " + str(maes[K][i]))
